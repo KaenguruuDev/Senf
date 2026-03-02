@@ -1,6 +1,0 @@
-@Senf_HostAddress = http://localhost:5227
-
-GET {{Senf_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
