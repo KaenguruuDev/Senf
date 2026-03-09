@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Senf.Authentication;
 using Senf.Data;
@@ -33,10 +34,20 @@ public static class Program
 			dbPath = Path.Combine(dbDirectory, "senf.db");
 		}
 
+		var dataProtectionKeysPath = Environment.GetEnvironmentVariable("DATA_PROTECTION_KEYS_PATH");
+		if (string.IsNullOrEmpty(dataProtectionKeysPath))
+		{
+			dataProtectionKeysPath = Path.Combine(Path.GetDirectoryName(dbPath)!, "DataProtection-Keys");
+		}
+
+		Directory.CreateDirectory(dataProtectionKeysPath);
+
 		builder.Services.AddDbContext<AppDbContext>(options =>
 			options.UseSqlite($"Data Source={dbPath}"));
 
-		builder.Services.AddDataProtection();
+		builder.Services.AddDataProtection()
+			.PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath))
+			.SetApplicationName("Senf");
 
 		builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 		builder.Services.AddScoped<IUserManagementService, UserManagementService>();
@@ -169,4 +180,3 @@ public static class Program
 		return (debugEnabled, remainingArgs.ToArray());
 	}
 }
-
