@@ -36,25 +36,20 @@ public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
 		    string.IsNullOrWhiteSpace(signature) ||
 		    string.IsNullOrWhiteSpace(principal))
 		{
-			logger.LogWarning(
-				"VerifySignature called with null or whitespace parameters. PublicKey null: {PublicKeyNull}, Message null: {MessageNull}, Signature null: {SignatureNull}, Principal null: {PrincipalNull}",
-				string.IsNullOrWhiteSpace(publicKey),
-				string.IsNullOrWhiteSpace(message),
-				string.IsNullOrWhiteSpace(signature),
-				string.IsNullOrWhiteSpace(principal));
+			logger.LogWarning("VerifySignature called with invalid parameters");
 			return false;
 		}
 
 		if (!IsValidSignerPrincipal(principal))
 		{
-			logger.LogWarning("VerifySignature: Principal contains unsupported characters");
+			logger.LogWarning("VerifySignature failed: principal contains unsupported characters");
 			return false;
 		}
 
 		if (TryDecodeSignatureArmoredBlock(signature, out var signatureArmored))
 			return VerifyWithOpenSsh(publicKey, message, signatureArmored, principal);
 
-		logger.LogWarning("VerifySignature: Invalid signature payload format");
+		logger.LogWarning("VerifySignature failed: invalid signature payload format");
 		return false;
 	}
 
@@ -64,18 +59,11 @@ public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
 		{
 			var keyParts = publicKey.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
 			if (keyParts.Length < 2)
-			{
-				logger.LogDebug(
-					"GetPublicKeyFingerprint: Invalid public key format. Expected at least 2 parts, got {PartCount}",
-					keyParts.Length);
 				return string.Empty;
-			}
 
 			var keyBytes = Convert.FromBase64String(keyParts[1]);
 			var hash = SHA256.HashData(keyBytes);
-			var fingerprint = $"SHA256:{Convert.ToBase64String(hash).TrimEnd('=')}";
-			logger.LogDebug("GetPublicKeyFingerprint: Calculated fingerprint for {KeyType} key", keyParts[0]);
-			return fingerprint;
+			return $"SHA256:{Convert.ToBase64String(hash).TrimEnd('=')}";
 		}
 		catch
 		{
@@ -200,7 +188,7 @@ public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
 			using var process = Process.Start(processStartInfo);
 			if (process == null)
 			{
-				logger.LogError("VerifySignature: Failed to start ssh-keygen process");
+				logger.LogError("VerifySignature failed: could not start ssh-keygen");
 				return false;
 			}
 
@@ -210,19 +198,13 @@ public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
 			if (!process.WaitForExit(VerifyTimeoutMs))
 			{
 				process.Kill(true);
-				logger.LogWarning("VerifySignature: ssh-keygen verify timed out after {TimeoutMs} ms", VerifyTimeoutMs);
+				logger.LogWarning("VerifySignature failed: ssh-keygen verification timed out after {TimeoutMs} ms", VerifyTimeoutMs);
 				return false;
 			}
 
 			if (process.ExitCode != 0)
 			{
-				var stdOut = process.StandardOutput.ReadToEnd();
-				var stdErr = process.StandardError.ReadToEnd();
-				logger.LogWarning(
-					"VerifySignature: ssh-keygen rejected signature. ExitCode: {ExitCode}, StdOut: {StdOut}, StdErr: {StdErr}",
-					process.ExitCode,
-					stdOut,
-					stdErr);
+				logger.LogWarning("VerifySignature failed: ssh-keygen rejected signature. ExitCode: {ExitCode}", process.ExitCode);
 				return false;
 			}
 
@@ -230,7 +212,7 @@ public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
 		}
 		catch (Exception ex)
 		{
-			logger.LogError(ex, "VerifySignature: OpenSSH verification failed");
+			logger.LogError(ex, "VerifySignature failed: OpenSSH verification error");
 			return false;
 		}
 		finally
@@ -240,9 +222,9 @@ public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
 				if (Directory.Exists(workDir))
 					Directory.Delete(workDir, true);
 			}
-			catch (Exception ex)
+			catch
 			{
-				logger.LogDebug(ex, "VerifySignature: Failed to clean temporary verification directory");
+				// Best effort cleanup.
 			}
 		}
 	}

@@ -10,28 +10,23 @@ public static class Program
 {
 	public static async Task Main(string[] args)
 	{
-		var builder = WebApplication.CreateBuilder(args);
+		var (debugEnabled, appArgs) = ParseCliFlags(args);
+		var builder = WebApplication.CreateBuilder(appArgs);
 
-		// Configure logging to see SSH authentication details
 		builder.Logging.ClearProviders();
 		builder.Logging.AddConsole();
-		builder.Logging.SetMinimumLevel(LogLevel.Debug);
-		builder.Logging.AddFilter("Senf.Authentication.SshAuthenticationHandler", LogLevel.Debug);
-		builder.Logging.AddFilter("Senf.Services.SshAuthService", LogLevel.Debug);
+		builder.Logging.SetMinimumLevel(debugEnabled ? LogLevel.Debug : LogLevel.Information);
 
-		// Support both container and local deployments
 		string dbPath;
 		var dbPathEnv = Environment.GetEnvironmentVariable("DATABASE_PATH");
 
 		if (!string.IsNullOrEmpty(dbPathEnv))
 		{
-			// Use environment variable (for containers)
 			dbPath = dbPathEnv;
 			Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 		}
 		else
 		{
-			// Use ApplicationData folder (for local/Windows development)
 			var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
 			var dbDirectory = Path.Combine(appDataPath, "Senf");
 			Directory.CreateDirectory(dbDirectory);
@@ -56,12 +51,12 @@ public static class Program
 
 		var app = builder.Build();
 
-		// Configure port from environment variable or use default
 		var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
 		if (!int.TryParse(port, out var portNumber) || portNumber < 1 || portNumber > 65535)
 		{
 			portNumber = 5000;
 		}
+
 		app.Urls.Clear();
 		app.Urls.Add($"http://+:{portNumber}");
 
@@ -71,9 +66,9 @@ public static class Program
 			await dbContext.Database.EnsureCreatedAsync();
 		}
 
-		if (args.Length > 0 && args[0] != "run")
+		if (appArgs.Length > 0 && appArgs[0] != "run")
 		{
-			await HandleCliCommand(args, app.Services);
+			await HandleCliCommand(appArgs, app.Services);
 			return;
 		}
 
@@ -137,6 +132,9 @@ public static class Program
 	{
 		Console.WriteLine("Senf CLI Commands:");
 		Console.WriteLine();
+		Console.WriteLine("  --debug | -d");
+		Console.WriteLine("    Enable debug logging (off by default)");
+		Console.WriteLine();
 		Console.WriteLine("  add-user <username> <public-key> [key-name]");
 		Console.WriteLine("    Create a new user with an SSH public key");
 		Console.WriteLine("    Example: dotnet run -- add-user john \"ssh-rsa AAAA... user@host\" \"my-key\"");
@@ -151,4 +149,24 @@ public static class Program
 		Console.WriteLine();
 		Console.WriteLine("To run the API server, use: dotnet run -- run");
 	}
+
+	private static (bool DebugEnabled, string[] RemainingArgs) ParseCliFlags(string[] args)
+	{
+		var debugEnabled = false;
+		var remainingArgs = new List<string>(args.Length);
+
+		foreach (var arg in args)
+		{
+			if (arg is "--debug" or "-d")
+			{
+				debugEnabled = true;
+				continue;
+			}
+
+			remainingArgs.Add(arg);
+		}
+
+		return (debugEnabled, remainingArgs.ToArray());
+	}
 }
+
