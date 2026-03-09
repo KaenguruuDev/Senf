@@ -8,4 +8,5 @@ public class User
 
     public ICollection<EnvFile> EnvFiles { get; set; } = new List<EnvFile>();
     public ICollection<SshKey> SshKeys { get; set; } = new List<SshKey>();
+    public ICollection<Share> Shares { get; set; } = new List<Share>();
 }

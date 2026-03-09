@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Senf.Data;
 using Senf.Dtos;
@@ -9,14 +10,15 @@ public interface IUserManagementService
 {
 	Task<(bool Success, string Message)> CreateUserAsync(string username, string publicSshKey, string? keyName = null);
 
-	Task<(bool Success, string Message, SshKeyResponse?)> AddSshKeyAsync(int userId, string publicSshKey,
+	Task<(bool Success, SshKeyError? Error, SshKeyResponse?)> AddSshKeyAsync(int userId, string publicSshKey,
 		string keyName);
 
 	Task<(bool Success, string Message)> ListUsersAsync();
-	Task<(bool Success, string Message, SshKeyResponse?)> GetSshKeyAsync(int userId, int keyId);
-	Task<(bool Success, string Message, List<SshKeyResponse>?)> GetUserSshKeysAsync(int userId);
-	Task<(bool Success, string Message)> DeleteSshKeyAsync(int userId, int keyId);
-	Task<(bool Success, string Message)> UpdateSshKeyNameAsync(int userId, int keyId, string newName);
+	Task<List<UserSummaryResponse>> GetUsersAsync();
+	Task<(bool Success, SshKeyError? Error, SshKeyResponse?)> GetSshKeyAsync(int userId, int keyId);
+	Task<(bool Success, SshKeyError? Error, List<SshKeyResponse>?)> GetUserSshKeysAsync(int userId);
+	Task<(bool Success, SshKeyError? Error)> DeleteSshKeyAsync(int userId, int keyId);
+	Task<(bool Success, SshKeyError? Error)> UpdateSshKeyNameAsync(int userId, int keyId, string newName);
 }
 
 public class UserManagementService : IUserManagementService
@@ -38,9 +40,9 @@ public class UserManagementService : IUserManagementService
 
 		if (string.IsNullOrWhiteSpace(publicSshKey))
 			return (false, "SSH public key cannot be empty");
-		
-		if (!_sshAuthService.IsSupportedPublicKey(publicSshKey, out var keyValidationError))
-			return (false, keyValidationError);
+
+		if (!_sshAuthService.IsSupportedPublicKey(publicSshKey))
+			return (false, SshKeyErrors.InvalidKeyFormat.ToMessage());
 
 		var fingerprint = _sshAuthService.GetPublicKeyFingerprint(publicSshKey);
 		if (string.IsNullOrEmpty(fingerprint))
@@ -58,11 +60,11 @@ public class UserManagementService : IUserManagementService
 			CreatedAt = DateTime.UtcNow,
 			SshKeys =
 			[
-				new()
+				new SshKey
 				{
 					PublicKey = publicSshKey,
 					Fingerprint = fingerprint,
-					Name = keyName ?? $"default",
+					Name = keyName ?? "default",
 					CreatedAt = DateTime.UtcNow
 				}
 			]
@@ -74,33 +76,40 @@ public class UserManagementService : IUserManagementService
 		return (true, $"User '{username}' created successfully with SSH key fingerprint: {fingerprint}");
 	}
 
-	public async Task<(bool Success, string Message, SshKeyResponse?)> AddSshKeyAsync(int userId, string publicSshKey,
+	public async Task<(bool Success, SshKeyError? Error, SshKeyResponse?)> AddSshKeyAsync(int userId,
+		string publicSshKey,
 		string keyName)
 	{
 		if (string.IsNullOrWhiteSpace(publicSshKey))
-			return (false, "SSH public key cannot be empty", null);
+			return (false, SshKeyErrors.PublicKeyRequired, null);
 
 		if (string.IsNullOrWhiteSpace(keyName))
-			return (false, "Key name cannot be empty", null);
-		
-		if (!_sshAuthService.IsSupportedPublicKey(publicSshKey, out var keyValidationError))
-			return (false, keyValidationError, null);
+			return (false, SshKeyErrors.NameRequired, null);
+
+		if (!_sshAuthService.IsSupportedPublicKey(publicSshKey))
+			return (false, SshKeyErrors.InvalidKeyFormat, null);
 
 		var fingerprint = _sshAuthService.GetPublicKeyFingerprint(publicSshKey);
 		if (string.IsNullOrEmpty(fingerprint))
-			return (false, "Invalid SSH public key format or unable to generate fingerprint", null);
+			return (false, SshKeyErrors.InvalidKeyFormat, null);
 
 		var user = await _dbContext.Users
 			.FirstOrDefaultAsync(u => u.Id == userId);
 
 		if (user == null)
-			return (false, $"User with ID {userId} not found", null);
+			return (false, SshKeyErrors.UserNotFound, null);
 
 		var existingKey = await _dbContext.SshKeys
-			.FirstOrDefaultAsync(k => k.Fingerprint == fingerprint && k.UserId == userId);
+			.FirstOrDefaultAsync(k => k.Fingerprint == fingerprint);
 
 		if (existingKey != null)
-			return (false, "SSH key with this fingerprint already exists for this user", null);
+			return (false, SshKeyErrors.DuplicateFingerprint, null);
+
+		var existingName = await _dbContext.SshKeys
+			.FirstOrDefaultAsync(k => k.UserId == userId && k.Name == keyName);
+
+		if (existingName != null)
+			return (false, SshKeyErrors.DuplicateName, null);
 
 		var sshKey = new SshKey
 		{
@@ -112,7 +121,15 @@ public class UserManagementService : IUserManagementService
 		};
 
 		_dbContext.SshKeys.Add(sshKey);
-		await _dbContext.SaveChangesAsync();
+		try
+		{
+			await _dbContext.SaveChangesAsync();
+		}
+		catch (DbUpdateException)
+		{
+			var conflict = await ResolveSshKeyConflictAsync(userId, fingerprint, keyName, null);
+			return (false, conflict, null);
+		}
 
 		var keyResponse = new SshKeyResponse
 		{
@@ -123,8 +140,7 @@ public class UserManagementService : IUserManagementService
 			CreatedAt = sshKey.CreatedAt
 		};
 
-		return (true, $"SSH key '{keyName}' added to user '{user.Username}' with fingerprint: {fingerprint}",
-			keyResponse);
+		return (true, null, keyResponse);
 	}
 
 	public async Task<(bool Success, string Message)> ListUsersAsync()
@@ -134,38 +150,52 @@ public class UserManagementService : IUserManagementService
 			.OrderBy(u => u.Username)
 			.ToListAsync();
 
-		if (!users.Any())
+		if (users.Count == 0)
 			return (true, "No users found");
 
-		var message = "Users:\n";
+		var message = new StringBuilder("Users:\n");
 		foreach (var user in users)
 		{
-			message += $"\n  {user.Username} (ID: {user.Id}, Created: {user.CreatedAt:yyyy-MM-dd HH:mm:ss})\n";
-			if (user.SshKeys.Any())
+			message.Append($"\n  {user.Username} (ID: {user.Id}, Created: {user.CreatedAt:yyyy-MM-dd HH:mm:ss})\n");
+			if (user.SshKeys.Count != 0)
 			{
 				foreach (var key in user.SshKeys)
 				{
-					message += $"    - {key.Name}: {key.Fingerprint} (Added: {key.CreatedAt:yyyy-MM-dd HH:mm:ss})\n";
+					message.Append(
+						$"    - {key.Name}: {key.Fingerprint} (Added: {key.CreatedAt:yyyy-MM-dd HH:mm:ss})\n");
 				}
 			}
 			else
-			{
-				message += "    - No SSH keys\n";
-			}
+				message.Append("    - No SSH keys\n");
 		}
 
-		return (true, message);
+		return (true, message.ToString());
 	}
 
-	public async Task<(bool Success, string Message, SshKeyResponse?)> GetSshKeyAsync(int userId, int keyId)
+	public async Task<List<UserSummaryResponse>> GetUsersAsync()
+	{
+		var users = await _dbContext.Users
+			.AsNoTracking()
+			.OrderBy(u => u.Username)
+			.Select(u => new UserSummaryResponse
+			{
+				Id = u.Id,
+				Username = u.Username
+			})
+			.ToListAsync();
+
+		return users;
+	}
+
+	public async Task<(bool Success, SshKeyError? Error, SshKeyResponse?)> GetSshKeyAsync(int userId, int keyId)
 	{
 		var sshKey = await _dbContext.SshKeys
 			.FirstOrDefaultAsync(k => k.Id == keyId && k.UserId == userId);
 
 		if (sshKey == null)
-			return (false, "SSH key not found", null);
+			return (false, SshKeyErrors.NotFound, null);
 
-		return (true, "Success", new SshKeyResponse
+		return (true, null, new SshKeyResponse
 		{
 			Id = sshKey.Id,
 			PublicKey = sshKey.PublicKey,
@@ -175,7 +205,7 @@ public class UserManagementService : IUserManagementService
 		});
 	}
 
-	public async Task<(bool Success, string Message, List<SshKeyResponse>?)> GetUserSshKeysAsync(int userId)
+	public async Task<(bool Success, SshKeyError? Error, List<SshKeyResponse>?)> GetUserSshKeysAsync(int userId)
 	{
 		var sshKeys = await _dbContext.SshKeys
 			.Where(k => k.UserId == userId)
@@ -191,45 +221,79 @@ public class UserManagementService : IUserManagementService
 			CreatedAt = k.CreatedAt
 		}).ToList();
 
-		return (true, "Success", keys);
+		return (true, null, keys);
 	}
 
-	public async Task<(bool Success, string Message)> DeleteSshKeyAsync(int userId, int keyId)
+	public async Task<(bool Success, SshKeyError? Error)> DeleteSshKeyAsync(int userId, int keyId)
 	{
 		var sshKey = await _dbContext.SshKeys
 			.FirstOrDefaultAsync(k => k.Id == keyId && k.UserId == userId);
 
 		if (sshKey == null)
-			return (false, "SSH key not found");
-		
+			return (false, SshKeyErrors.NotFound);
 		var otherKeys = await _dbContext.SshKeys
 			.CountAsync(k => k.UserId == userId && k.Id != keyId);
 
 		if (otherKeys == 0)
-			return (false, "Cannot delete the last SSH key. At least one key must remain.");
+			return (false, SshKeyErrors.CannotDeleteLastKey);
 
 		_dbContext.SshKeys.Remove(sshKey);
 		await _dbContext.SaveChangesAsync();
 
-		return (true, "SSH key deleted successfully");
+		return (true, null);
 	}
 
-	public async Task<(bool Success, string Message)> UpdateSshKeyNameAsync(int userId, int keyId, string newName)
+	public async Task<(bool Success, SshKeyError? Error)> UpdateSshKeyNameAsync(int userId, int keyId, string newName)
 	{
 		if (string.IsNullOrWhiteSpace(newName))
-			return (false, "Key name cannot be empty");
+			return (false, SshKeyErrors.NameRequired);
 
 		var sshKey = await _dbContext.SshKeys
 			.FirstOrDefaultAsync(k => k.Id == keyId && k.UserId == userId);
 
 		if (sshKey == null)
-			return (false, "SSH key not found");
+			return (false, SshKeyErrors.NotFound);
+
+		var nameExists = await _dbContext.SshKeys
+			.AnyAsync(k => k.UserId == userId && k.Name == newName && k.Id != keyId);
+
+		if (nameExists)
+			return (false, SshKeyErrors.DuplicateName);
 
 		sshKey.Name = newName;
 		_dbContext.SshKeys.Update(sshKey);
-		await _dbContext.SaveChangesAsync();
+		try
+		{
+			await _dbContext.SaveChangesAsync();
+		}
+		catch (DbUpdateException)
+		{
+			var conflict = await ResolveSshKeyConflictAsync(userId, null, newName, keyId);
+			return (false, conflict);
+		}
 
-		return (true, "SSH key name updated successfully");
+		return (true, null);
 	}
 
+	private async Task<SshKeyError?> ResolveSshKeyConflictAsync(int userId, string? fingerprint, string? keyName,
+		int? keyId)
+	{
+		if (!string.IsNullOrWhiteSpace(fingerprint))
+		{
+			var fingerprintExists = await _dbContext.SshKeys
+				.AnyAsync(k => k.Fingerprint == fingerprint);
+			if (fingerprintExists)
+				return SshKeyErrors.DuplicateFingerprint;
+		}
+
+		if (!string.IsNullOrWhiteSpace(keyName))
+		{
+			var nameExists = await _dbContext.SshKeys
+				.AnyAsync(k => k.UserId == userId && k.Name == keyName && k.Id != keyId);
+			if (nameExists)
+				return SshKeyErrors.DuplicateName;
+		}
+
+		return null;
+	}
 }
