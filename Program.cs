@@ -79,6 +79,7 @@ public static class Program
 		app.UseAuthentication();
 		app.UseAuthorization();
 
+		app.MapHealthRoutes();
 		app.MapEnvFileRoutes();
 		app.MapSshKeyRoutes();
 
