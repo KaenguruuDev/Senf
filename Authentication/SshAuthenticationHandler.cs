@@ -113,7 +113,7 @@ public class SshAuthenticationHandler(
 					"SSH authentication: Attempting signature verification with key {KeyIndex}/{TotalKeys}. Fingerprint: {Fingerprint}",
 					keyIndex, user.SshKeys.Count, keyFingerprint);
 
-				var result = sshAuthService.VerifySignature(key.PublicKey, messageToVerify, signatureStr);
+				var result = sshAuthService.VerifySignature(key.PublicKey, messageToVerify, signatureStr, user.Username);
 				if (result)
 				{
 					_logger.LogInformation(
@@ -141,11 +141,8 @@ public class SshAuthenticationHandler(
 		else
 		{
 			_logger.LogWarning("SSH authentication failed: User {Username} has no SSH keys configured", usernameStr);
-			sshAuthService.VerifySignature(
-				"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDummy",
-				messageToVerify,
-				signatureStr);
 		}
+
 
 		if (!isValidSignature)
 		{
@@ -181,3 +178,4 @@ public class SshAuthenticationHandler(
 		   !string.IsNullOrWhiteSpace(message) &&
 		   !string.IsNullOrWhiteSpace(nonce);
 }
+
