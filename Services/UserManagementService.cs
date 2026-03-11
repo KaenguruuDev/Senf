@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Senf.Data;
 using Senf.Dtos;
@@ -13,6 +14,7 @@ public interface IUserManagementService
 		string keyName);
 
 	Task<(bool Success, string Message)> ListUsersAsync();
+	Task<List<UserSummaryResponse>> GetUsersAsync();
 	Task<(bool Success, SshKeyError? Error, SshKeyResponse?)> GetSshKeyAsync(int userId, int keyId);
 	Task<(bool Success, SshKeyError? Error, List<SshKeyResponse>?)> GetUserSshKeysAsync(int userId);
 	Task<(bool Success, SshKeyError? Error)> DeleteSshKeyAsync(int userId, int keyId);
@@ -82,7 +84,6 @@ public class UserManagementService : IUserManagementService
 
 		if (string.IsNullOrWhiteSpace(keyName))
 			return (false, SshKeyErrors.NameRequired, null);
-
 		if (!_sshAuthService.IsSupportedPublicKey(publicSshKey, out var keyValidationError))
 			return (false, keyValidationError ?? SshKeyErrors.InvalidKeyFormat, null);
 
@@ -147,27 +148,41 @@ public class UserManagementService : IUserManagementService
 			.OrderBy(u => u.Username)
 			.ToListAsync();
 
-		if (!users.Any())
+		if (users.Count == 0)
 			return (true, "No users found");
 
-		var message = "Users:\n";
+		var message = new StringBuilder("Users:\n");
 		foreach (var user in users)
 		{
-			message += $"\n  {user.Username} (ID: {user.Id}, Created: {user.CreatedAt:yyyy-MM-dd HH:mm:ss})\n";
-			if (user.SshKeys.Any())
+			message.Append($"\n  {user.Username} (ID: {user.Id}, Created: {user.CreatedAt:yyyy-MM-dd HH:mm:ss})\n");
+			if (user.SshKeys.Count != 0)
 			{
 				foreach (var key in user.SshKeys)
 				{
-					message += $"    - {key.Name}: {key.Fingerprint} (Added: {key.CreatedAt:yyyy-MM-dd HH:mm:ss})\n";
+					message.Append(
+						$"    - {key.Name}: {key.Fingerprint} (Added: {key.CreatedAt:yyyy-MM-dd HH:mm:ss})\n");
 				}
 			}
 			else
-			{
-				message += "    - No SSH keys\n";
-			}
+				message.Append("    - No SSH keys\n");
 		}
 
-		return (true, message);
+		return (true, message.ToString());
+	}
+
+	public async Task<List<UserSummaryResponse>> GetUsersAsync()
+	{
+		var users = await _dbContext.Users
+			.AsNoTracking()
+			.OrderBy(u => u.Username)
+			.Select(u => new UserSummaryResponse
+			{
+				Id = u.Id,
+				Username = u.Username
+			})
+			.ToListAsync();
+
+		return users;
 	}
 
 	public async Task<(bool Success, SshKeyError? Error, SshKeyResponse?)> GetSshKeyAsync(int userId, int keyId)
@@ -214,7 +229,6 @@ public class UserManagementService : IUserManagementService
 
 		if (sshKey == null)
 			return (false, SshKeyErrors.NotFound);
-
 		var otherKeys = await _dbContext.SshKeys
 			.CountAsync(k => k.UserId == userId && k.Id != keyId);
 
@@ -280,5 +294,4 @@ public class UserManagementService : IUserManagementService
 
 		return null;
 	}
-
 }

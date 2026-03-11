@@ -75,7 +75,7 @@ public static class Program
 		using (var scope = app.Services.CreateScope())
 		{
 			var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-			await dbContext.Database.EnsureCreatedAsync();
+			await dbContext.Database.MigrateAsync();
 		}
 
 		if (appArgs.Length > 0 && appArgs[0] != "run")
@@ -94,6 +94,8 @@ public static class Program
 		app.MapHealthRoutes();
 		app.MapEnvFileRoutes();
 		app.MapSshKeyRoutes();
+		app.MapUserRoutes();
+		app.MapSharingRoutes();
 
 		await app.RunAsync();
 	}

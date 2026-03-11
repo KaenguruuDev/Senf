@@ -8,6 +8,8 @@ public sealed record EnvFileError(string Code) : ApiError(Code);
 
 public sealed record SshKeyError(string Code) : ApiError(Code);
 
+public sealed record SharingError(string Code) : ApiError(Code);
+
 public sealed record ErrorDefinition(string Code, int Status, string Title, string Detail);
 
 public static class EnvFileErrors
@@ -48,6 +50,35 @@ public static class SshKeyErrors
     public static SshKeyError NotFound => new(NotFoundCode);
     public static SshKeyError UserNotFound => new(UserNotFoundCode);
     public static SshKeyError CannotDeleteLastKey => new(CannotDeleteLastKeyCode);
+}
+
+public static class SharingErrors
+{
+    public const string ShareIdRequiredCode = "share.share_id_required";
+    public const string EnvFileIdRequiredCode = "share.env_file_id_required";
+    public const string ShareToUserIdRequiredCode = "share.share_to_user_id_required";
+    public const string ShareToUserIdInvalidCode = "share.share_to_user_id_invalid";
+    public const string ShareModeInvalidCode = "share.share_mode_invalid";
+    public const string ContentRequiredCode = "share.content_required";
+    public const string CannotShareToSelfCode = "share.cannot_share_to_self";
+    public const string EnvFileNotFoundCode = "share.env_file_not_found";
+    public const string ShareToUserNotFoundCode = "share.share_to_user_not_found";
+    public const string ShareNotFoundCode = "share.not_found";
+    public const string ReadOnlyCode = "share.read_only";
+    public const string ConflictCode = "share.conflict";
+
+    public static SharingError ShareIdRequired => new(ShareIdRequiredCode);
+    public static SharingError EnvFileIdRequired => new(EnvFileIdRequiredCode);
+    public static SharingError ShareToUserIdRequired => new(ShareToUserIdRequiredCode);
+    public static SharingError ShareToUserIdInvalid => new(ShareToUserIdInvalidCode);
+    public static SharingError ShareModeInvalid => new(ShareModeInvalidCode);
+    public static SharingError ContentRequired => new(ContentRequiredCode);
+    public static SharingError CannotShareToSelf => new(CannotShareToSelfCode);
+    public static SharingError EnvFileNotFound => new(EnvFileNotFoundCode);
+    public static SharingError ShareToUserNotFound => new(ShareToUserNotFoundCode);
+    public static SharingError ShareNotFound => new(ShareNotFoundCode);
+    public static SharingError ReadOnly => new(ReadOnlyCode);
+    public static SharingError Conflict => new(ConflictCode);
 }
 
 public static class ApiErrorCatalog
@@ -138,6 +169,67 @@ public static class ApiErrorCatalog
             StatusCodes.Status409Conflict,
             "Conflict",
             "Cannot delete the last SSH key. At least one key must remain."),
+
+        SharingErrors.ShareIdRequiredCode => new(
+            SharingErrors.ShareIdRequiredCode,
+            StatusCodes.Status400BadRequest,
+            "Invalid request",
+            "Share ID is required."),
+        SharingErrors.EnvFileIdRequiredCode => new(
+            SharingErrors.EnvFileIdRequiredCode,
+            StatusCodes.Status400BadRequest,
+            "Invalid request",
+            "Environment file ID is required."),
+        SharingErrors.ShareToUserIdRequiredCode => new(
+            SharingErrors.ShareToUserIdRequiredCode,
+            StatusCodes.Status400BadRequest,
+            "Invalid request",
+            "Share-to user ID is required."),
+        SharingErrors.ShareToUserIdInvalidCode => new(
+            SharingErrors.ShareToUserIdInvalidCode,
+            StatusCodes.Status400BadRequest,
+            "Invalid request",
+            "Share-to user ID is invalid."),
+        SharingErrors.ShareModeInvalidCode => new(
+            SharingErrors.ShareModeInvalidCode,
+            StatusCodes.Status400BadRequest,
+            "Invalid request",
+            "Share mode is invalid."),
+        SharingErrors.ContentRequiredCode => new(
+            SharingErrors.ContentRequiredCode,
+            StatusCodes.Status400BadRequest,
+            "Invalid request",
+            "Environment file content is required."),
+        SharingErrors.CannotShareToSelfCode => new(
+            SharingErrors.CannotShareToSelfCode,
+            StatusCodes.Status400BadRequest,
+            "Invalid request",
+            "Cannot share to the same user."),
+        SharingErrors.EnvFileNotFoundCode => new(
+            SharingErrors.EnvFileNotFoundCode,
+            StatusCodes.Status404NotFound,
+            "Not found",
+            "Environment file not found."),
+        SharingErrors.ShareToUserNotFoundCode => new(
+            SharingErrors.ShareToUserNotFoundCode,
+            StatusCodes.Status404NotFound,
+            "Not found",
+            "Share-to user not found."),
+        SharingErrors.ShareNotFoundCode => new(
+            SharingErrors.ShareNotFoundCode,
+            StatusCodes.Status404NotFound,
+            "Not found",
+            "Share not found."),
+        SharingErrors.ReadOnlyCode => new(
+            SharingErrors.ReadOnlyCode,
+            StatusCodes.Status403Forbidden,
+            "Forbidden",
+            "Share is read-only."),
+        SharingErrors.ConflictCode => new(
+            SharingErrors.ConflictCode,
+            StatusCodes.Status409Conflict,
+            "Conflict",
+            "Share already exists."),
 
         _ => Unexpected
     };
