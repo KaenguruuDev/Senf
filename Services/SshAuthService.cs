@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Org.BouncyCastle.Crypto.Parameters;
+using Senf.Dtos;
 
 namespace Senf.Services;
 
@@ -14,7 +15,7 @@ public interface ISshAuthService
 	bool IsNonceUsed(string nonce);
 	void MarkNonceAsUsed(string nonce);
 	bool TryMarkNonceAsUsed(string nonce);
-	bool IsSupportedPublicKey(string publicKey, out string errorMessage);
+	bool IsSupportedPublicKey(string publicKey, out SshKeyError? error);
 }
 
 public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
@@ -32,9 +33,9 @@ public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
 	public bool VerifySignature(string publicKey, string message, string signature, string principal)
 	{
 		if (string.IsNullOrWhiteSpace(publicKey) ||
-		    string.IsNullOrWhiteSpace(message) ||
-		    string.IsNullOrWhiteSpace(signature) ||
-		    string.IsNullOrWhiteSpace(principal))
+			string.IsNullOrWhiteSpace(message) ||
+			string.IsNullOrWhiteSpace(signature) ||
+			string.IsNullOrWhiteSpace(principal))
 		{
 			logger.LogWarning("VerifySignature called with invalid parameters");
 			return false;
@@ -89,13 +90,13 @@ public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
 		return _usedNonces.TryAdd(nonce, DateTime.UtcNow);
 	}
 
-	public bool IsSupportedPublicKey(string publicKey, out string errorMessage)
+	public bool IsSupportedPublicKey(string publicKey, out SshKeyError? error)
 	{
-		errorMessage = string.Empty;
+		error = null;
 
 		if (string.IsNullOrWhiteSpace(publicKey))
 		{
-			errorMessage = "SSH public key cannot be empty";
+			error = SshKeyErrors.PublicKeyRequired;
 			return false;
 		}
 
@@ -104,7 +105,7 @@ public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
 			var keyParts = publicKey.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
 			if (keyParts.Length < 2)
 			{
-				errorMessage = "Invalid SSH key format";
+				error = SshKeyErrors.InvalidKeyFormat;
 				return false;
 			}
 
@@ -116,29 +117,29 @@ public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
 				case "ssh-ed25519":
 					if (ParseSshEd25519PublicKey(keyBytes))
 						return true;
-					errorMessage = "Invalid ssh-ed25519 key format";
+					error = SshKeyErrors.InvalidKeyFormat;
 					return false;
 				case "ssh-rsa":
 					var rsaKey = ParseSshRsaPublicKey(keyBytes);
 					if (rsaKey == null)
 					{
-						errorMessage = "Invalid ssh-rsa key format";
+						error = SshKeyErrors.InvalidKeyFormat;
 						return false;
 					}
 
 					if (rsaKey.Modulus.BitLength >= 2048)
 						return true;
 
-					errorMessage = "RSA keys must be at least 2048 bits";
+					error = SshKeyErrors.RsaKeyTooSmall;
 					return false;
 				default:
-					errorMessage = $"Unsupported SSH key type '{keyType}'. Supported types: ssh-rsa, ssh-ed25519";
+					error = SshKeyErrors.UnsupportedKeyType;
 					return false;
 			}
 		}
 		catch
 		{
-			errorMessage = "Invalid SSH key format";
+			error = SshKeyErrors.InvalidKeyFormat;
 			return false;
 		}
 	}
@@ -260,7 +261,7 @@ public class SshAuthService(ILogger<SshAuthService> logger) : ISshAuthService
 		}
 
 		if (!candidate.Contains("BEGIN SSH SIGNATURE", StringComparison.Ordinal) ||
-		    !candidate.Contains("END SSH SIGNATURE", StringComparison.Ordinal))
+			!candidate.Contains("END SSH SIGNATURE", StringComparison.Ordinal))
 			return false;
 
 		signatureArmored = candidate;

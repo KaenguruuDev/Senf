@@ -7,29 +7,30 @@ namespace Senf.Services;
 
 public interface IEnvFileService
 {
-    Task<(bool Success, string Message, EnvFileResponse? File)> GetEnvFileAsync(int userId, string envName);
-    Task<(bool Success, string Message, List<EnvFileResponse>? Files)> ListEnvFilesAsync(int userId);
-    Task<(bool Success, string Message)> CreateEnvFileAsync(int userId, string envName, string content, int sshKeyId);
-    Task<(bool Success, string Message)> UpdateEnvFileAsync(int userId, string envName, string content, int sshKeyId);
-    Task<(bool Success, string Message)> DeleteEnvFileAsync(int userId, string envName);
+    Task<(bool Success, EnvFileError? Error, EnvFileResponse? File)> GetEnvFileAsync(int userId, string envName);
+    Task<(bool Success, EnvFileError? Error, List<EnvFileResponse>? Files)> ListEnvFilesAsync(int userId);
+    Task<(bool Success, EnvFileError? Error)> CreateEnvFileAsync(int userId, string envName, string content, int sshKeyId);
+    Task<(bool Success, EnvFileError? Error)> UpdateEnvFileAsync(int userId, string envName, string content, int sshKeyId);
+    Task<(bool Success, EnvFileError? Error)> DeleteEnvFileAsync(int userId, string envName);
+    Task<bool> ExistsEnvFileAsync(int userId, string envName);
 }
 
 public class EnvFileService(AppDbContext dbContext, IEncryptionService encryptionService)
     : IEnvFileService
 {
-    public async Task<(bool Success, string Message, EnvFileResponse? File)> GetEnvFileAsync(int userId, string envName)
+    public async Task<(bool Success, EnvFileError? Error, EnvFileResponse? File)> GetEnvFileAsync(int userId, string envName)
     {
         if (string.IsNullOrWhiteSpace(envName))
-            return (false, "Environment name cannot be empty", null);
+            return (false, EnvFileErrors.NameRequired, null);
 
         var envFile = await dbContext.EnvFiles
             .FirstOrDefaultAsync(e => e.UserId == userId && e.Name == envName);
 
         if (envFile == null)
-            return (false, $"Environment file '{envName}' not found", null);
+            return (false, EnvFileErrors.NotFound, null);
 
         var decryptedContent = encryptionService.Decrypt(envFile.EncryptedContent);
-        return (true, "Success", new EnvFileResponse
+        return (true, null, new EnvFileResponse
         {
             Id = envFile.Id,
             Name = envFile.Name,
@@ -40,7 +41,7 @@ public class EnvFileService(AppDbContext dbContext, IEncryptionService encryptio
         });
     }
 
-    public async Task<(bool Success, string Message, List<EnvFileResponse>? Files)> ListEnvFilesAsync(int userId)
+    public async Task<(bool Success, EnvFileError? Error, List<EnvFileResponse>? Files)> ListEnvFilesAsync(int userId)
     {
         var envFiles = await dbContext.EnvFiles
             .Where(e => e.UserId == userId)
@@ -57,22 +58,22 @@ public class EnvFileService(AppDbContext dbContext, IEncryptionService encryptio
             LastUpdatedByKeyId = e.LastUpdatedBySshKeyId
         }).ToList();
 
-        return (true, "Success", files);
+        return (true, null, files);
     }
 
-    public async Task<(bool Success, string Message)> CreateEnvFileAsync(int userId, string envName, string content, int sshKeyId)
+    public async Task<(bool Success, EnvFileError? Error)> CreateEnvFileAsync(int userId, string envName, string content, int sshKeyId)
     {
         if (string.IsNullOrWhiteSpace(envName))
-            return (false, "Environment name cannot be empty");
+            return (false, EnvFileErrors.NameRequired);
 
         if (string.IsNullOrWhiteSpace(content))
-            return (false, "Environment content cannot be empty");
+            return (false, EnvFileErrors.ContentRequired);
 
         var existingFile = await dbContext.EnvFiles
             .FirstOrDefaultAsync(e => e.UserId == userId && e.Name == envName);
 
         if (existingFile != null)
-            return (false, $"Environment file '{envName}' already exists");
+            return (false, EnvFileErrors.AlreadyExists);
 
         var encryptedContent = encryptionService.Encrypt(content);
         var envFile = new EnvFile
@@ -88,22 +89,22 @@ public class EnvFileService(AppDbContext dbContext, IEncryptionService encryptio
         dbContext.EnvFiles.Add(envFile);
         await dbContext.SaveChangesAsync();
 
-        return (true, $"Environment file '{envName}' created successfully");
+        return (true, null);
     }
 
-    public async Task<(bool Success, string Message)> UpdateEnvFileAsync(int userId, string envName, string content, int sshKeyId)
+    public async Task<(bool Success, EnvFileError? Error)> UpdateEnvFileAsync(int userId, string envName, string content, int sshKeyId)
     {
         if (string.IsNullOrWhiteSpace(envName))
-            return (false, "Environment name cannot be empty");
+            return (false, EnvFileErrors.NameRequired);
 
         if (string.IsNullOrWhiteSpace(content))
-            return (false, "Environment content cannot be empty");
+            return (false, EnvFileErrors.ContentRequired);
 
         var envFile = await dbContext.EnvFiles
             .FirstOrDefaultAsync(e => e.UserId == userId && e.Name == envName);
 
         if (envFile == null)
-            return (false, $"Environment file '{envName}' not found");
+            return (false, EnvFileErrors.NotFound);
 
         envFile.EncryptedContent = encryptionService.Encrypt(content);
         envFile.UpdatedAt = DateTime.UtcNow;
@@ -112,23 +113,32 @@ public class EnvFileService(AppDbContext dbContext, IEncryptionService encryptio
         dbContext.EnvFiles.Update(envFile);
         await dbContext.SaveChangesAsync();
 
-        return (true, $"Environment file '{envName}' updated successfully");
+        return (true, null);
     }
 
-    public async Task<(bool Success, string Message)> DeleteEnvFileAsync(int userId, string envName)
+    public async Task<(bool Success, EnvFileError? Error)> DeleteEnvFileAsync(int userId, string envName)
     {
         if (string.IsNullOrWhiteSpace(envName))
-            return (false, "Environment name cannot be empty");
+            return (false, EnvFileErrors.NameRequired);
 
         var envFile = await dbContext.EnvFiles
             .FirstOrDefaultAsync(e => e.UserId == userId && e.Name == envName);
 
         if (envFile == null)
-            return (false, $"Environment file '{envName}' not found");
+            return (false, EnvFileErrors.NotFound);
 
         dbContext.EnvFiles.Remove(envFile);
         await dbContext.SaveChangesAsync();
 
-        return (true, $"Environment file '{envName}' deleted successfully");
+        return (true, null);
+    }
+
+    public async Task<bool> ExistsEnvFileAsync(int userId, string envName)
+    {
+        if (string.IsNullOrWhiteSpace(envName))
+            return false;
+
+        return await dbContext.EnvFiles
+            .AnyAsync(e => e.UserId == userId && e.Name == envName);
     }
 }

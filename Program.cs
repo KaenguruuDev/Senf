@@ -4,6 +4,7 @@ using Senf.Authentication;
 using Senf.Data;
 using Senf.Routes;
 using Senf.Services;
+using Senf.Dtos;
 
 namespace Senf;
 
@@ -123,9 +124,16 @@ public static class Program
 			var publicKey = args[2];
 			var keyName = args[3];
 
-			var (success, message, _) = await userManagementService.AddSshKeyAsync(userId, publicKey, keyName);
-			Console.WriteLine(message);
-			Environment.Exit(success ? 0 : 1);
+			var (success, error, keyResponse) = await userManagementService.AddSshKeyAsync(userId, publicKey, keyName);
+			if (success)
+			{
+				var fingerprint = keyResponse?.Fingerprint ?? "unknown";
+				Console.WriteLine($"SSH key '{keyName}' added with fingerprint: {fingerprint}");
+				Environment.Exit(0);
+			}
+
+			Console.WriteLine((error ?? SshKeyErrors.InvalidKeyFormat).ToMessage());
+			Environment.Exit(1);
 		}
 		else if (args[0] == "list-users")
 		{
