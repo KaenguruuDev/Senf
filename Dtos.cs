@@ -17,13 +17,6 @@ public class SshKeyUpdateRequest
     public string Name { get; set; } = string.Empty;
 }
 
-// Error Response
-public class ErrorResponse
-{
-    public bool Success { get; } = false;
-    public string Error { get; set; } = string.Empty;
-}
-
 // Data Response DTOs
 public class EnvFileResponse
 {

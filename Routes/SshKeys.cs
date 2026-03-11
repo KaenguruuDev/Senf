@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Senf.Dtos;
 using Senf.Services;
 
@@ -11,21 +12,23 @@ public static class SshKeysRoutes
             .WithName("GetSshKeys")
             .Produces<SshKeyResponse>(StatusCodes.Status200OK)
             .Produces<SshKeysListResponse>(StatusCodes.Status200OK)
-            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
-            .Produces<ErrorResponse>(StatusCodes.Status404NotFound)
+            .Produces<ProblemDetails>(StatusCodes.Status400BadRequest)
+            .Produces<ProblemDetails>(StatusCodes.Status404NotFound)
             .RequireAuthorization();
 
         app.MapPost("/keys", CreateSshKey)
             .WithName("CreateSshKey")
             .Produces<SshKeyResponse>(StatusCodes.Status201Created)
-            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
+            .Produces<ProblemDetails>(StatusCodes.Status400BadRequest)
+            .Produces<ProblemDetails>(StatusCodes.Status409Conflict)
             .RequireAuthorization();
 
         app.MapDelete("/keys", DeleteSshKey)
             .WithName("DeleteSshKey")
             .Produces(StatusCodes.Status200OK)
-            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
-            .Produces<ErrorResponse>(StatusCodes.Status404NotFound)
+            .Produces<ProblemDetails>(StatusCodes.Status400BadRequest)
+            .Produces<ProblemDetails>(StatusCodes.Status404NotFound)
+            .Produces<ProblemDetails>(StatusCodes.Status409Conflict)
             .RequireAuthorization();
     }
 
@@ -36,44 +39,58 @@ public static class SshKeysRoutes
 
         if (keyId.HasValue)
         {
-            var (success, message, key) = await userManagementService.GetSshKeyAsync(userId, keyId.Value);
-            return success ? Results.Ok(key) : Results.NotFound(new ErrorResponse { Error = message });
+            var (success, error, key) = await userManagementService.GetSshKeyAsync(userId, keyId.Value);
+            if (success)
+                return Results.Ok(key);
+
+            if (error == null)
+                return ApiProblem.Unexpected(context);
+
+            return ApiProblem.FromError(error, context);
         }
 
-        var (listSuccess, listMessage, keys) = await userManagementService.GetUserSshKeysAsync(userId);
+        var (listSuccess, listError, keys) = await userManagementService.GetUserSshKeysAsync(userId);
         return listSuccess
             ? Results.Ok(new SshKeysListResponse { Keys = keys! })
-            : Results.BadRequest(new ErrorResponse { Error = listMessage });
+            : listError == null
+                ? ApiProblem.Unexpected(context)
+                : ApiProblem.FromError(listError, context);
     }
 
     private static async Task<IResult> CreateSshKey(HttpContext context,
         IUserManagementService userManagementService, SshKeyCreateRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.PublicKey))
-            return Results.BadRequest(new ErrorResponse { Error = "Public key is required" });
+            return ApiProblem.Validation(SshKeyErrors.PublicKeyRequired, context, "publicKey");
 
         if (string.IsNullOrWhiteSpace(request.Name))
-            return Results.BadRequest(new ErrorResponse { Error = "Key name is required" });
+            return ApiProblem.Validation(SshKeyErrors.NameRequired, context, "name");
 
         var userId = int.Parse(context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "0");
 
-        var (success, message, keyResponse) = await userManagementService.AddSshKeyAsync(userId, request.PublicKey, request.Name);
+        var (success, error, keyResponse) = await userManagementService.AddSshKeyAsync(userId, request.PublicKey, request.Name);
         return success
             ? Results.Created($"/keys/{keyResponse?.Id}", keyResponse)
-            : Results.BadRequest(new ErrorResponse { Error = message });
+            : error == null
+                ? ApiProblem.Unexpected(context)
+                : ApiProblem.FromError(error, context);
     }
 
     private static async Task<IResult> DeleteSshKey(int? keyId, HttpContext context,
         IUserManagementService userManagementService)
     {
         if (!keyId.HasValue)
-            return Results.BadRequest(new ErrorResponse { Error = "Key ID is required" });
+            return ApiProblem.Validation(SshKeyErrors.KeyIdRequired, context, "keyId");
 
         var userId = int.Parse(context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "0");
 
-        var (success, message) = await userManagementService.DeleteSshKeyAsync(userId, keyId.Value);
-        return success
-            ? Results.Ok()
-            : Results.NotFound(new ErrorResponse { Error = message });
+        var (success, error) = await userManagementService.DeleteSshKeyAsync(userId, keyId.Value);
+        if (success)
+            return Results.Ok();
+
+        if (error == null)
+            return ApiProblem.Unexpected(context);
+
+        return ApiProblem.FromError(error, context);
     }
 }
