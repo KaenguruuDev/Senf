@@ -39,13 +39,13 @@ public class SshAuthenticationHandler(
 			!Request.Headers.TryGetValue("X-SSH-Message", out var message) ||
 			!Request.Headers.TryGetValue("X-SSH-Nonce", out var nonce))
 		{
-			_logger.LogWarning(
-				"SSH authentication failed: Missing required headers. Username: {HasUsername}, Signature: {HasSignature}, Message: {HasMessage}, Nonce: {HasNonce}",
+			_logger.LogDebug(
+				"SSH authentication skipped: Missing required headers. Username: {HasUsername}, Signature: {HasSignature}, Message: {HasMessage}, Nonce: {HasNonce}",
 				hasUsernameHeader,
 				hasSignatureHeader,
 				hasMessageHeader,
 				hasNonceHeader);
-			return AuthenticateResult.Fail("Authentication failed");
+			return AuthenticateResult.NoResult();
 		}
 
 		var usernameStr = username.ToString();

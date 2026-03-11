@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Senf.Data;
 using Senf.Dtos;
 using Senf.Models;
@@ -266,7 +267,7 @@ public static class SharingRoutes
 	}
 
 	private static async Task<IResult> RemoveShareAsync(HttpContext context, AppDbContext db,
-		RemoveEnvShareRequest request)
+		[FromBody] RemoveEnvShareRequest request)
 	{
 		if (request.EnvFileId <= 0)
 			return ApiProblem.Validation(SharingErrors.EnvFileIdRequired, context, "envFileId");
