@@ -9,6 +9,8 @@ namespace Senf.Services;
 public interface IUserManagementService
 {
 	Task<(bool Success, string Message)> CreateUserAsync(string username, string publicSshKey, string? keyName = null);
+	Task<(bool Success, UserError? Error, UserSummaryResponse?)> CreateUserWithKeysAsync(string username,
+		IReadOnlyList<string> publicKeys);
 
 	Task<(bool Success, SshKeyError? Error, SshKeyResponse?)> AddSshKeyAsync(int userId, string publicSshKey,
 		string keyName);
@@ -19,6 +21,7 @@ public interface IUserManagementService
 	Task<(bool Success, SshKeyError? Error, List<SshKeyResponse>?)> GetUserSshKeysAsync(int userId);
 	Task<(bool Success, SshKeyError? Error)> DeleteSshKeyAsync(int userId, int keyId);
 	Task<(bool Success, SshKeyError? Error)> UpdateSshKeyNameAsync(int userId, int keyId, string newName);
+	Task<(bool Success, UserError? Error)> DeleteUserAsync(int userId);
 }
 
 public class UserManagementService : IUserManagementService
@@ -48,6 +51,11 @@ public class UserManagementService : IUserManagementService
 		if (string.IsNullOrEmpty(fingerprint))
 			return (false, "Invalid SSH public key format or unable to generate fingerprint");
 
+		var fingerprintExists = await _dbContext.SshKeys
+			.AnyAsync(k => k.Fingerprint == fingerprint);
+		if (fingerprintExists)
+			return (false, SshKeyErrors.DuplicateFingerprint.ToMessage());
+
 		var existingUser = await _dbContext.Users
 			.FirstOrDefaultAsync(u => u.Username == username);
 
@@ -74,6 +82,81 @@ public class UserManagementService : IUserManagementService
 		await _dbContext.SaveChangesAsync();
 
 		return (true, $"User '{username}' created successfully with SSH key fingerprint: {fingerprint}");
+	}
+
+	public async Task<(bool Success, UserError? Error, UserSummaryResponse?)> CreateUserWithKeysAsync(
+		string username,
+		IReadOnlyList<string> publicKeys)
+	{
+		if (string.IsNullOrWhiteSpace(username))
+			return (false, UserErrors.UsernameRequired, null);
+
+		if (publicKeys.Count == 0)
+			return (false, UserErrors.PublicKeysRequired, null);
+
+		var usernameExists = await _dbContext.Users
+			.AnyAsync(u => u.Username == username);
+
+		if (usernameExists)
+			return (false, UserErrors.UsernameAlreadyExists, null);
+
+		var fingerprints = new HashSet<string>(StringComparer.Ordinal);
+		var sshKeys = new List<SshKey>(publicKeys.Count);
+		var index = 1;
+
+		foreach (var key in publicKeys)
+		{
+			if (string.IsNullOrWhiteSpace(key))
+				return (false, UserErrors.InvalidKeyFormat, null);
+
+			if (!_sshAuthService.IsSupportedPublicKey(key))
+				return (false, UserErrors.InvalidKeyFormat, null);
+
+			var fingerprint = _sshAuthService.GetPublicKeyFingerprint(key);
+			if (string.IsNullOrEmpty(fingerprint))
+				return (false, UserErrors.InvalidKeyFormat, null);
+
+			if (!fingerprints.Add(fingerprint))
+				return (false, UserErrors.DuplicateKeyFingerprint, null);
+
+			var name = index == 1 ? "default" : $"key-{index}";
+			sshKeys.Add(new SshKey
+			{
+				PublicKey = key,
+				Fingerprint = fingerprint,
+				Name = name,
+				CreatedAt = DateTime.UtcNow
+			});
+			index++;
+		}
+
+		var fingerprintExists = await _dbContext.SshKeys
+			.AnyAsync(k => fingerprints.Contains(k.Fingerprint));
+		if (fingerprintExists)
+			return (false, UserErrors.DuplicateKeyFingerprint, null);
+
+		var user = new User
+		{
+			Username = username,
+			CreatedAt = DateTime.UtcNow,
+			SshKeys = sshKeys
+		};
+
+		_dbContext.Users.Add(user);
+		try
+		{
+			await _dbContext.SaveChangesAsync();
+		}
+		catch (DbUpdateException)
+		{
+			return (false, UserErrors.DuplicateKeyFingerprint, null);
+		}
+
+		return (true, null, new UserSummaryResponse
+		{
+			Id = user.Id,
+			Username = user.Username
+		});
 	}
 
 	public async Task<(bool Success, SshKeyError? Error, SshKeyResponse?)> AddSshKeyAsync(int userId,
@@ -272,6 +355,18 @@ public class UserManagementService : IUserManagementService
 			return (false, conflict);
 		}
 
+		return (true, null);
+	}
+
+	public async Task<(bool Success, UserError? Error)> DeleteUserAsync(int userId)
+	{
+		var user = await _dbContext.Users
+			.FirstOrDefaultAsync(u => u.Id == userId);
+		if (user == null)
+			return (false, UserErrors.NotFound);
+
+		_dbContext.Users.Remove(user);
+		await _dbContext.SaveChangesAsync();
 		return (true, null);
 	}
 

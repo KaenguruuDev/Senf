@@ -10,6 +10,10 @@ public sealed record SshKeyError(string Code) : ApiError(Code);
 
 public sealed record SharingError(string Code) : ApiError(Code);
 
+public sealed record UserError(string Code) : ApiError(Code);
+
+public sealed record InviteError(string Code) : ApiError(Code);
+
 public sealed record ErrorDefinition(string Code, int Status, string Title, string Detail);
 
 public static class EnvFileErrors
@@ -79,6 +83,42 @@ public static class SharingErrors
     public static SharingError ShareNotFound => new(ShareNotFoundCode);
     public static SharingError ReadOnly => new(ReadOnlyCode);
     public static SharingError Conflict => new(ConflictCode);
+}
+
+public static class UserErrors
+{
+    public const string UsernameRequiredCode = "user.username_required";
+    public const string PublicKeysRequiredCode = "user.public_keys_required";
+    public const string UsernameAlreadyExistsCode = "user.username_already_exists";
+    public const string DuplicateKeyFingerprintCode = "user.duplicate_key_fingerprint";
+    public const string InvalidKeyFormatCode = "user.invalid_key_format";
+    public const string NotFoundCode = "user.not_found";
+    public const string CannotDeleteSelfCode = "user.cannot_delete_self";
+    public const string CannotDeleteAdminCode = "user.cannot_delete_admin";
+    public const string AdminRequiredCode = "user.admin_required";
+
+    public static UserError UsernameRequired => new(UsernameRequiredCode);
+    public static UserError PublicKeysRequired => new(PublicKeysRequiredCode);
+    public static UserError UsernameAlreadyExists => new(UsernameAlreadyExistsCode);
+    public static UserError DuplicateKeyFingerprint => new(DuplicateKeyFingerprintCode);
+    public static UserError InvalidKeyFormat => new(InvalidKeyFormatCode);
+    public static UserError NotFound => new(NotFoundCode);
+    public static UserError CannotDeleteSelf => new(CannotDeleteSelfCode);
+    public static UserError CannotDeleteAdmin => new(CannotDeleteAdminCode);
+    public static UserError AdminRequired => new(AdminRequiredCode);
+}
+
+public static class InviteErrors
+{
+    public const string TokenRequiredCode = "invite.token_required";
+    public const string TokenInvalidCode = "invite.token_invalid";
+    public const string TokenExpiredCode = "invite.token_expired";
+    public const string TokenUsedCode = "invite.token_used";
+
+    public static InviteError TokenRequired => new(TokenRequiredCode);
+    public static InviteError TokenInvalid => new(TokenInvalidCode);
+    public static InviteError TokenExpired => new(TokenExpiredCode);
+    public static InviteError TokenUsed => new(TokenUsedCode);
 }
 
 public static class ApiErrorCatalog
@@ -230,6 +270,73 @@ public static class ApiErrorCatalog
             StatusCodes.Status409Conflict,
             "Conflict",
             "Share already exists."),
+
+        UserErrors.UsernameRequiredCode => new(
+            UserErrors.UsernameRequiredCode,
+            StatusCodes.Status400BadRequest,
+            "Invalid request",
+            "Username is required."),
+        UserErrors.PublicKeysRequiredCode => new(
+            UserErrors.PublicKeysRequiredCode,
+            StatusCodes.Status400BadRequest,
+            "Invalid request",
+            "At least one public key is required."),
+        UserErrors.UsernameAlreadyExistsCode => new(
+            UserErrors.UsernameAlreadyExistsCode,
+            StatusCodes.Status409Conflict,
+            "Conflict",
+            "Username already exists."),
+        UserErrors.DuplicateKeyFingerprintCode => new(
+            UserErrors.DuplicateKeyFingerprintCode,
+            StatusCodes.Status409Conflict,
+            "Conflict",
+            "SSH key with this fingerprint already exists."),
+        UserErrors.InvalidKeyFormatCode => new(
+            UserErrors.InvalidKeyFormatCode,
+            StatusCodes.Status400BadRequest,
+            "Invalid request",
+            "Invalid SSH key format."),
+        UserErrors.NotFoundCode => new(
+            UserErrors.NotFoundCode,
+            StatusCodes.Status404NotFound,
+            "Not found",
+            "User not found."),
+        UserErrors.CannotDeleteSelfCode => new(
+            UserErrors.CannotDeleteSelfCode,
+            StatusCodes.Status403Forbidden,
+            "Forbidden",
+            "You cannot delete your own account."),
+        UserErrors.CannotDeleteAdminCode => new(
+            UserErrors.CannotDeleteAdminCode,
+            StatusCodes.Status403Forbidden,
+            "Forbidden",
+            "Cannot delete an administrator account."),
+        UserErrors.AdminRequiredCode => new(
+            UserErrors.AdminRequiredCode,
+            StatusCodes.Status403Forbidden,
+            "Forbidden",
+            "Administrator privileges are required."),
+
+        InviteErrors.TokenRequiredCode => new(
+            InviteErrors.TokenRequiredCode,
+            StatusCodes.Status400BadRequest,
+            "Invalid request",
+            "Invite token is required."),
+        InviteErrors.TokenInvalidCode => new(
+            InviteErrors.TokenInvalidCode,
+            StatusCodes.Status404NotFound,
+            "Not found",
+            "Invite token not found."),
+        InviteErrors.TokenExpiredCode => new(
+            InviteErrors.TokenExpiredCode,
+            StatusCodes.Status410Gone,
+            "Gone",
+            "Invite token has expired."),
+        InviteErrors.TokenUsedCode => new(
+            InviteErrors.TokenUsedCode,
+            StatusCodes.Status409Conflict,
+            "Conflict",
+            "Invite token has already been used."),
 
         _ => Unexpected
     };

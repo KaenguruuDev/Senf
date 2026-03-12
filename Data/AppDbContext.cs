@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
 	public DbSet<EnvFile> EnvFiles { get; set; }
 	public DbSet<SshKey> SshKeys { get; set; }
 	public DbSet<Share> Shares { get; set; }
+	public DbSet<InviteToken> InviteTokens { get; set; }
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
@@ -69,6 +70,20 @@ public class AppDbContext : DbContext
 				.HasForeignKey(e => e.SharedToUserId)
 				.OnDelete(DeleteBehavior.Cascade);
 			entity.HasIndex(e => new { e.EnvFileId, e.SharedToUserId }).IsUnique();
+		});
+
+		modelBuilder.Entity<InviteToken>(entity =>
+		{
+			entity.HasKey(e => e.Id);
+			entity.Property(e => e.Token).IsRequired().HasMaxLength(255);
+			entity.Property(e => e.CreatedAt).IsRequired();
+			entity.Property(e => e.ExpiresAt).IsRequired();
+			entity.HasIndex(e => e.Token).IsUnique();
+
+			entity.HasOne(e => e.CreatedByUser)
+				.WithMany()
+				.HasForeignKey(e => e.CreatedByUserId)
+				.OnDelete(DeleteBehavior.Cascade);
 		});
 	}
 }

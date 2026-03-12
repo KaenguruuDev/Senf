@@ -6,6 +6,41 @@ public class EnvFileUpdateRequest
     public string Content { get; set; } = string.Empty;
 }
 
+public class JoinRequest
+{
+    public string Token { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public List<string> PublicKeys { get; set; } = [];
+}
+
+public class JoinResponse
+{
+    public int UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+}
+
+public class InviteCreateResponse
+{
+    public string Token { get; set; } = string.Empty;
+    public string JoinUrl { get; set; } = string.Empty;
+    public DateTime ExpiresAt { get; set; }
+}
+
+public class InviteSummaryResponse
+{
+    public string Token { get; set; } = string.Empty;
+    public int CreatedByUserId { get; set; }
+    public string CreatedByUsername { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? UsedAt { get; set; }
+}
+
+public class InviteListResponse
+{
+    public List<InviteSummaryResponse> Invites { get; set; } = [];
+}
+
 public class SshKeyCreateRequest
 {
     public string PublicKey { get; set; } = string.Empty;

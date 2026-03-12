@@ -4,7 +4,6 @@ using Senf.Authentication;
 using Senf.Data;
 using Senf.Routes;
 using Senf.Services;
-using Senf.Dtos;
 
 namespace Senf;
 
@@ -13,6 +12,8 @@ public static class Program
 	public static async Task Main(string[] args)
 	{
 		var (debugEnabled, appArgs) = ParseCliFlags(args);
+		if (appArgs.Length > 0 && appArgs[0] == "run")
+			appArgs = appArgs[1..];
 		var builder = WebApplication.CreateBuilder(appArgs);
 
 		builder.Logging.ClearProviders();
@@ -54,6 +55,18 @@ public static class Program
 		builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 		builder.Services.AddScoped<IEnvFileService, EnvFileService>();
 		builder.Services.AddSingleton<ISshAuthService, SshAuthService>();
+		builder.Services.AddSingleton<IAdminAuthorizationService, AdminAuthorizationService>();
+		builder.Services.AddSingleton<IAdminConfigProvider>(sp =>
+		{
+			var configPath = Environment.GetEnvironmentVariable("ADMIN_CONFIG_PATH");
+			if (string.IsNullOrWhiteSpace(configPath))
+				configPath = Path.Combine(Directory.GetCurrentDirectory(), "config.yml");
+
+			return new AdminConfigProvider(
+				configPath,
+				sp.GetRequiredService<ILogger<AdminConfigProvider>>());
+		});
+		builder.Services.AddScoped<IInviteService, InviteService>();
 		builder.Services.AddAuthentication(SshAuthenticationOptions.DefaultScheme)
 			.AddScheme<SshAuthenticationOptions, SshAuthenticationHandler>(
 				SshAuthenticationOptions.DefaultScheme, options => { });
@@ -76,12 +89,34 @@ public static class Program
 		{
 			var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 			await dbContext.Database.MigrateAsync();
-		}
 
-		if (appArgs.Length > 0 && appArgs[0] != "run")
-		{
-			await HandleCliCommand(appArgs, app.Services);
-			return;
+			var adminConfigProvider = scope.ServiceProvider.GetRequiredService<IAdminConfigProvider>();
+			var userManagementService = scope.ServiceProvider.GetRequiredService<IUserManagementService>();
+			var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
+			var logger = loggerFactory.CreateLogger("AdminConfig");
+			var adminConfig = adminConfigProvider.GetConfig();
+
+			foreach (var admin in adminConfig.Admins)
+			{
+				if (string.IsNullOrWhiteSpace(admin.Username) || string.IsNullOrWhiteSpace(admin.PublicKey))
+				{
+					logger.LogWarning(
+						"Skipping admin entry with missing username or public key in {Path}",
+						adminConfigProvider.ConfigPath);
+					continue;
+				}
+
+				var exists = await dbContext.Users
+					.AnyAsync(u => u.Username == admin.Username);
+				if (exists)
+					continue;
+
+				var (success, message) = await userManagementService
+					.CreateUserAsync(admin.Username, admin.PublicKey, "default");
+
+				if (!success)
+					logger.LogWarning("Failed to seed admin '{Username}': {Message}", admin.Username, message);
+			}
 		}
 
 		if (app.Environment.IsDevelopment())
@@ -96,80 +131,9 @@ public static class Program
 		app.MapSshKeyRoutes();
 		app.MapUserRoutes();
 		app.MapSharingRoutes();
+		app.MapInviteRoutes();
 
 		await app.RunAsync();
-	}
-
-	private static async Task HandleCliCommand(string[] args, IServiceProvider services)
-	{
-		using var scope = services.CreateScope();
-		var userManagementService = scope.ServiceProvider.GetRequiredService<IUserManagementService>();
-
-		if (args[0] == "add-user" && args.Length >= 3)
-		{
-			var username = args[1];
-			var publicKey = args[2];
-			var keyName = args.Length > 3 ? args[3] : null;
-
-			var (success, message) = await userManagementService.CreateUserAsync(username, publicKey, keyName);
-			Console.WriteLine(message);
-			Environment.Exit(success ? 0 : 1);
-		}
-		else if (args[0] == "add-key" && args.Length >= 4)
-		{
-			if (!int.TryParse(args[1], out var userId))
-			{
-				Console.WriteLine("Error: User ID must be a valid integer");
-				Environment.Exit(1);
-			}
-
-			var publicKey = args[2];
-			var keyName = args[3];
-
-			var (success, error, keyResponse) = await userManagementService.AddSshKeyAsync(userId, publicKey, keyName);
-			if (success)
-			{
-				var fingerprint = keyResponse?.Fingerprint ?? "unknown";
-				Console.WriteLine($"SSH key '{keyName}' added with fingerprint: {fingerprint}");
-				Environment.Exit(0);
-			}
-
-			Console.WriteLine((error ?? SshKeyErrors.InvalidKeyFormat).ToMessage());
-			Environment.Exit(1);
-		}
-		else if (args[0] == "list-users")
-		{
-			var (success, message) = await userManagementService.ListUsersAsync();
-			Console.WriteLine(message);
-			Environment.Exit(success ? 0 : 1);
-		}
-		else
-		{
-			PrintCliHelp();
-			Environment.Exit(1);
-		}
-	}
-
-	private static void PrintCliHelp()
-	{
-		Console.WriteLine("Senf CLI Commands:");
-		Console.WriteLine();
-		Console.WriteLine("  --debug | -d");
-		Console.WriteLine("    Enable debug logging (off by default)");
-		Console.WriteLine();
-		Console.WriteLine("  add-user <username> <public-key> [key-name]");
-		Console.WriteLine("    Create a new user with an SSH public key");
-		Console.WriteLine("    Example: dotnet run -- add-user john \"ssh-rsa AAAA... user@host\" \"my-key\"");
-		Console.WriteLine();
-		Console.WriteLine("  add-key <user-id> <public-key> <key-name>");
-		Console.WriteLine("    Add an additional SSH key to an existing user");
-		Console.WriteLine("    Example: dotnet run -- add-key 1 \"ssh-rsa AAAA... user@host\" \"laptop-key\"");
-		Console.WriteLine();
-		Console.WriteLine("  list-users");
-		Console.WriteLine("    List all users and their SSH keys");
-		Console.WriteLine("    Example: dotnet run -- list-users");
-		Console.WriteLine();
-		Console.WriteLine("To run the API server, use: dotnet run -- run");
 	}
 
 	private static (bool DebugEnabled, string[] RemainingArgs) ParseCliFlags(string[] args)
