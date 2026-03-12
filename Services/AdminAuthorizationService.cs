@@ -10,9 +10,7 @@ public interface IAdminAuthorizationService
 
 public class AdminAuthorizationService(IAdminConfigProvider configProvider) : IAdminAuthorizationService
 {
-    private readonly IAdminConfigProvider _configProvider = configProvider;
-
-    public bool IsAdmin(ClaimsPrincipal user)
+	public bool IsAdmin(ClaimsPrincipal user)
     {
         var username = user.FindFirst(ClaimTypes.Name)?.Value;
         var userIdValue = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -25,7 +23,7 @@ public class AdminAuthorizationService(IAdminConfigProvider configProvider) : IA
 
     public bool IsAdmin(string? username, int? userId)
     {
-        var config = _configProvider.GetConfig();
+        var config = configProvider.GetConfig();
 
         if (userId.HasValue && config.Admins.Any(a => a.UserId == userId.Value))
             return true;

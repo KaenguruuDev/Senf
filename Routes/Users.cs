@@ -12,7 +12,7 @@ public static class UsersRoutes
     {
         app.MapGet("/users", GetUsers)
             .WithName("GetUsers")
-            .Produces<UsersListResponse>(StatusCodes.Status200OK)
+            .Produces<UsersListResponse>()
             .RequireAuthorization();
 
         app.MapDelete("/users/{userId:int}", DeleteUser)

@@ -10,8 +10,8 @@ public static class SshKeysRoutes
     {
         app.MapGet("/keys", GetSshKeys)
             .WithName("GetSshKeys")
-            .Produces<SshKeyResponse>(StatusCodes.Status200OK)
-            .Produces<SshKeysListResponse>(StatusCodes.Status200OK)
+            .Produces<SshKeyResponse>()
+            .Produces<SshKeysListResponse>()
             .Produces<ProblemDetails>(StatusCodes.Status400BadRequest)
             .Produces<ProblemDetails>(StatusCodes.Status404NotFound)
             .RequireAuthorization();

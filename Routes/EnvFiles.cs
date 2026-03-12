@@ -10,7 +10,7 @@ public static class EnvFilesRoutes
     {
         app.MapGet("/env", GetEnvFile)
             .WithName("GetEnvFile")
-            .Produces<EnvFileResponse>(StatusCodes.Status200OK)
+            .Produces<EnvFileResponse>()
             .Produces<ProblemDetails>(StatusCodes.Status400BadRequest)
             .Produces<ProblemDetails>(StatusCodes.Status404NotFound)
             .RequireAuthorization();
