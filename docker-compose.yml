@@ -26,4 +26,5 @@ volumes:
   senf-data:
     driver: local
   senf-config:
+    name: senf-config
     driver: local
