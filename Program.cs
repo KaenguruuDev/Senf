@@ -78,11 +78,8 @@ public static class Program
 
 		var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
 		if (!int.TryParse(port, out var portNumber) || portNumber < 1 || portNumber > 65535)
-		{
 			portNumber = 5000;
-		}
-
-		app.Urls.Clear();
+		
 		app.Urls.Add($"http://+:{portNumber}");
 
 		using (var scope = app.Services.CreateScope())
