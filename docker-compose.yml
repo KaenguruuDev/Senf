@@ -13,7 +13,8 @@ services:
       ADMIN_CONFIG_PATH: /app/config/config.yml
       PORT: ${PORT:-5000}
     volumes:
-      - senf-config:/app/config
+      - senf-data:/app/data
+      - ./config:/app/config
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:$${PORT:-5000}/healthz > /dev/null || exit 1"]
@@ -24,7 +25,4 @@ services:
 
 volumes:
   senf-data:
-    driver: local
-  senf-config:
-    name: senf-config
     driver: local

@@ -10,21 +10,27 @@ RUN dotnet publish "Senf.csproj" -c Release -o /app/publish /p:UseAppHost=false
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
+# Install dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openssh-client curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy published app
 COPY --from=build /app/publish .
 
-RUN mkdir -p /app/data \
-    && chown -R www-data:www-data /app 
+# Create data/config directories with correct ownership
+RUN mkdir -p /app/data /app/config \
+    && chown -R www-data:www-data /app/data
 
-RUN mkdir -p /home/www-data/.ssh
-RUN chown -R www-data:www-data /home/www-data/.ssh
+# SSH directory for www-data
+RUN mkdir -p /home/www-data/.ssh \
+    && chown -R www-data:www-data /home/www-data/.ssh
 
-ENV export HOME=/home/www-data
-ENV DATABASE_PATH=/app/data/senf.db
+ENV HOME=/home/www-data
 
+# Switch to non-root user
 USER www-data
-ENTRYPOINT ["dotnet", "Senf.dll"]
+
+# Runtime entrypoint fixes volume ownership (works for fresh and existing volumes)
+ENTRYPOINT ["sh", "-c", "chown -R www-data:www-data /app/data && exec dotnet Senf.dll"]
 CMD ["run"]
