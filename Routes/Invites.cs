@@ -62,12 +62,12 @@ public static class InviteRoutes
             .FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "0");
 
         var invite = await inviteService.CreateInviteAsync(userId, InviteTtl);
-        var joinUrl = $"{context.Request.Scheme}://{context.Request.Host}/join?token={invite.Token}";
+        var joinUrl = $"/join?token={invite.Token}";
 
         return Results.Created("/invites", new InviteCreateResponse
         {
             Token = invite.Token,
-            JoinUrl = joinUrl,
+            RelativeJoinUrl = joinUrl,
             ExpiresAt = invite.ExpiresAt
         });
     }
