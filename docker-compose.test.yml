@@ -1,0 +1,9 @@
+﻿services:
+  senf:
+    volumes:
+      - senf-data:/app/data
+      - senf-config:/app/config
+
+volumes:
+  senf-config:
+    driver: local
